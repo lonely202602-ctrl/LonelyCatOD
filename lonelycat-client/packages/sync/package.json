@@ -1,0 +1,19 @@
+{
+  "name": "@lonelycat/sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "同步层：OT 客户端状态机 + WebSocket 客户端。编辑器只依赖 SyncAdapter 接口，以后换 CRDT 只替换实现",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@lonelycat/ot-core": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@lonelycat/editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeMirror 6 与同步层的桥接：本地改动转操作、远端操作应用到编辑器、远端光标显示",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "@lonelycat/ot-core": "0.1.0",
+    "@lonelycat/sync": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}

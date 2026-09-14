@@ -1,0 +1,17 @@
+{
+  "name": "lonelycat-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LonelyCat 协同编辑客户端：网页 + 桌面（Electron）共用同一份代码",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "dev:web": "npm run dev -w @lonelycat/web",
+    "build:web": "npm run build -w @lonelycat/web",
+    "dev:desktop": "npm run dev -w @lonelycat/desktop"
+  }
+}

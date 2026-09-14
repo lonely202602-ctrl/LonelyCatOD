@@ -1,0 +1,14 @@
+# 构建产物与依赖
+lonelycat-server/**/target/
+lonelycat-client/node_modules/
+lonelycat-client/**/node_modules/
+lonelycat-client/**/dist/
+
+# 运行时数据
+lonelycat-server/data/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/

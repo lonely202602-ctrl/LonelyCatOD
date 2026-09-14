@@ -1,0 +1,24 @@
+{
+  "name": "@lonelycat/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "网页壳：文档列表 + 编辑页。桌面端直接加载这里的构建产物",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "@lonelycat/editor": "0.1.0",
+    "@lonelycat/ot-core": "0.1.0",
+    "@lonelycat/sync": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

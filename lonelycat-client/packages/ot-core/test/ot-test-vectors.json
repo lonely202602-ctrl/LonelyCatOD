@@ -1,0 +1,75 @@
+{
+  "_comment": "OT 共享测试向量。后端 lonelycat-server/ot-core 和前端 lonelycat-client/packages/ot-core 各放一份相同副本，改动时两边同步。操作格式：正整数=retain，负整数=delete，字符串=insert。",
+  "apply": [
+    { "name": "删除中间一个字符", "doc": "chat", "op": [1, -1, 2], "expected": "cat" },
+    { "name": "末尾追加", "doc": "chat", "op": [4, "s"], "expected": "chats" },
+    { "name": "空文档插入", "doc": "", "op": ["hello"], "expected": "hello" },
+    { "name": "全部删除", "doc": "hello", "op": [-5], "expected": "" },
+    { "name": "中间插入单词", "doc": "hello world", "op": [6, "big ", 5], "expected": "hello big world" },
+    { "name": "开头替换", "doc": "abc", "op": ["x", -1, 2], "expected": "xbc" }
+  ],
+  "compose": [
+    { "name": "先删后追加", "doc": "chat", "a": [1, -1, 2], "b": [3, "s"], "expected": [1, -1, 2, "s"] },
+    { "name": "连续插入合并", "doc": "", "a": ["ab"], "b": [2, "c"], "expected": ["abc"] },
+    { "name": "插入后删掉开头", "doc": "", "a": ["abc"], "b": [-1, 2], "expected": ["bc"] },
+    { "name": "插入又删掉等于没改", "doc": "abc", "a": [1, "x", 2], "b": [1, -1, 2], "expected": [3] },
+    { "name": "两个空操作", "doc": "abc", "a": [3], "b": [3], "expected": [3] },
+    { "name": "插入全部再删光", "doc": "", "a": ["hello"], "b": [-5], "expected": [] }
+  ],
+  "transform": [
+    {
+      "name": "经典例子：A 删 h，B 在 t 后加 s",
+      "doc": "chat",
+      "a": [1, -1, 2],
+      "b": [4, "s"],
+      "aPrime": [1, -1, 3],
+      "bPrime": [3, "s"],
+      "result": "cats"
+    },
+    {
+      "name": "同一位置同时插入，a 排在前面",
+      "doc": "ab",
+      "a": [1, "X", 1],
+      "b": [1, "Y", 1],
+      "aPrime": [1, "X", 2],
+      "bPrime": [2, "Y", 1],
+      "result": "aXYb"
+    },
+    {
+      "name": "同时删除同一个字符，只删一次",
+      "doc": "abc",
+      "a": [1, -1, 1],
+      "b": [1, -1, 1],
+      "aPrime": [2],
+      "bPrime": [2],
+      "result": "ac"
+    },
+    {
+      "name": "删除区间部分重叠",
+      "doc": "abcde",
+      "a": [-3, 2],
+      "b": [1, -3, 1],
+      "aPrime": [-1, 1],
+      "bPrime": [-1, 1],
+      "result": "e"
+    },
+    {
+      "name": "一方在另一方删除的区间内插入，插入内容保留",
+      "doc": "abcd",
+      "a": [2, "X", 2],
+      "b": [1, -2, 1],
+      "aPrime": [1, "X", 1],
+      "bPrime": [1, -1, 1, -1, 1],
+      "result": "aXd"
+    },
+    {
+      "name": "互不相关的两处插入",
+      "doc": "hello world",
+      "a": [5, "!", 6],
+      "b": [11, "?"],
+      "aPrime": [5, "!", 7],
+      "bPrime": [12, "?"],
+      "result": "hello! world?"
+    }
+  ]
+}
