@@ -242,6 +242,10 @@ export function transform(a: TextOperation, b: TextOperation): [TextOperation, T
  * 删掉了光标前面的字符，光标就前移。用于远端光标显示和本地光标在远端操作后的位置修正。
  *
  * @param isOwn 是否是光标所有者自己的操作。自己的插入光标要跟着往后走（打字），别人的插入在同一位置时光标留在前面。
+ *
+ * 注意：当前生产路径的远端光标由 CodeMirror 的位置映射（packages/editor 的 remoteCursors.ts）
+ * 自动完成，没有用到本函数。它保留在这里有两个用途：测试里验证「光标转换」这一 OT 概念本身；
+ * 将来如果把光标协议升级成带 revision 的精确转换（服务端/客户端按版本转换光标），它是现成的备件。
  */
 export function transformCursor(position: number, op: TextOperation, isOwn: boolean): number {
   let index = 0; // 原文档游标

@@ -36,8 +36,8 @@ class FakeClient {
   client: OtClient;
   /** 发往服务器、尚未投递的消息 */
   outbox: { revision: number; op: TextOperation }[] = [];
-  /** 服务器发来的、尚未处理的消息 */
-  inbox: ({ kind: 'ack' } | { kind: 'op'; op: TextOperation })[] = [];
+  /** 服务器发来的、尚未处理的消息（和真实协议一样带 revision） */
+  inbox: ({ kind: 'ack'; revision: number } | { kind: 'op'; revision: number; op: TextOperation })[] = [];
 
   constructor(readonly id: string, initial: string, revision: number) {
     this.content = initial;
@@ -59,8 +59,8 @@ class FakeClient {
   receiveOne(): boolean {
     const msg = this.inbox.shift();
     if (!msg) return false;
-    if (msg.kind === 'ack') this.client.serverAck();
-    else this.client.applyServer(msg.op);
+    if (msg.kind === 'ack') this.client.serverAck(msg.revision);
+    else this.client.applyServer(msg.revision, msg.op);
     return true;
   }
 }
@@ -71,8 +71,8 @@ function deliverToServer(server: FakeServer, from: FakeClient, all: FakeClient[]
   if (!msg) return false;
   const applied = server.receive(msg.op, msg.revision);
   for (const c of all) {
-    if (c === from) c.inbox.push({ kind: 'ack' });
-    else c.inbox.push({ kind: 'op', op: applied });
+    if (c === from) c.inbox.push({ kind: 'ack', revision: server.revision });
+    else c.inbox.push({ kind: 'op', revision: server.revision, op: applied });
   }
   return true;
 }
@@ -191,5 +191,97 @@ describe('OtClient 状态机', () => {
         expect(c.client.stateName).toBe('Synchronized');
       }
     }
+  });
+});
+
+describe('OtClient 对乱序消息的防御', () => {
+  /** 直接构造状态机，不走 FakeServer，精确控制消息到达顺序 */
+  function makeClient(initial: string) {
+    const applied: TextOperation[] = [];
+    let content = initial;
+    const client = new OtClient(0, {
+      sendOperation: () => {},
+      applyOperation: (op) => {
+        content = op.apply(content);
+        applied.push(op);
+      },
+    });
+    return {
+      client,
+      applied,
+      get content() {
+        return content;
+      },
+      /** 用户在本地编辑：编辑器内容立即变化，操作交给状态机 */
+      edit(op: TextOperation) {
+        content = op.apply(content);
+        client.applyClient(op);
+      },
+    };
+  }
+
+  it('超前到达的远端操作先缓冲，中间版本补齐后按序应用', () => {
+    const t = makeClient('chat');
+    const op1 = new TextOperation().insert('X').retain(4); // rev1: chat → Xchat
+    const op2 = new TextOperation().retain(5).insert('!'); // rev2: Xchat → Xchat!
+
+    // rev2 先到：缺 rev1，必须缓冲，不能碰编辑器
+    t.client.applyServer(2, op2);
+    expect(t.applied).toHaveLength(0);
+    expect(t.client.revision).toBe(0);
+    expect(t.content).toBe('chat');
+
+    // rev1 到了：级联放行 rev1、rev2
+    t.client.applyServer(1, op1);
+    expect(t.client.revision).toBe(2);
+    expect(t.applied).toEqual([op1, op2]);
+    expect(t.content).toBe('Xchat!');
+  });
+
+  it('重复或过期的远端操作被忽略', () => {
+    const t = makeClient('abc');
+    const op1 = new TextOperation().insert('X').retain(3);
+    t.client.applyServer(1, op1);
+    // 同一个 revision 再来一次、或更老的版本，都不能再次应用
+    t.client.applyServer(1, new TextOperation().insert('Y').retain(3));
+    t.client.applyServer(0, new TextOperation().insert('Z').retain(3));
+    expect(t.client.revision).toBe(1);
+    expect(t.applied).toEqual([op1]);
+    expect(t.content).toBe('Xabc');
+  });
+
+  it('自己的 ack 先于别人的广播到达时，ack 同样被缓冲', () => {
+    const t = makeClient('chat');
+    t.edit(new TextOperation().insert('X').retain(4)); // 本地已是 Xchat，操作发出成为 outstanding
+
+    // 服务器把我们的操作排到了 rev2（说明中间有别人的 rev1），而 ack 先到了
+    t.client.serverAck(2);
+    expect(t.client.revision).toBe(0);
+    expect(t.client.stateName).toBe('AwaitingConfirm');
+
+    // 别人的 rev1 到达：先应用它（转换到本地视角），缓冲里的 ack 随之消化
+    t.client.applyServer(1, new TextOperation().retain(1).delete(1).retain(2));
+    expect(t.client.revision).toBe(2);
+    expect(t.client.stateName).toBe('Synchronized');
+    expect(t.content).toBe('Xcat');
+  });
+
+  it('广播乱序投递（模拟修复前的服务器缺陷）也能收敛', () => {
+    const server = new FakeServer('chat');
+    const a = new FakeClient('A', 'chat', 0);
+    const b = new FakeClient('B', 'chat', 0);
+
+    a.edit(new TextOperation().retain(1).delete(1).retain(2)); // rev1
+    b.edit(new TextOperation().retain(4).insert('s')); // rev2
+    deliverToServer(server, a, [a, b]);
+    deliverToServer(server, b, [a, b]);
+
+    // 人为把 B 的收件箱倒序：自己的 ack(rev2) 先于别人的 op(rev1) 到达
+    b.inbox.reverse();
+    while (b.receiveOne());
+
+    expect(b.content).toBe('cats');
+    expect(b.client.revision).toBe(2);
+    expect(b.client.stateName).toBe('Synchronized');
   });
 });

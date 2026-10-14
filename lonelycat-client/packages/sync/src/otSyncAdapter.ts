@@ -173,12 +173,22 @@ export class OtSyncAdapter implements SyncAdapter {
         );
         break;
       }
-      case 'ack':
-        this.client.serverAck();
+      case 'ack': {
+        if (typeof msg.revision !== 'number') {
+          console.error('ack 消息缺少 revision，已忽略', msg);
+          break;
+        }
+        this.client.serverAck(msg.revision);
         break;
+      }
       case 'op': {
         this.currentAuthor = msg.author ?? '';
-        this.client.applyServer(TextOperation.fromJSON(msg.op ?? []));
+        if (typeof msg.revision !== 'number') {
+          // 协议要求 op 必须带 revision，缺了没法做乱序校验，只能丢弃
+          console.error('op 消息缺少 revision，已忽略', msg);
+          break;
+        }
+        this.client.applyServer(msg.revision, TextOperation.fromJSON(msg.op ?? []));
         break;
       }
       case 'cursor':

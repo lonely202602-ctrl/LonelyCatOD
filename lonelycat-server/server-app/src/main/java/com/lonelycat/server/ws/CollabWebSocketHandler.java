@@ -90,10 +90,12 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
                 case "leave" -> leaveRoom(client);
                 default -> send(client, Message.error("未知消息类型: " + msg.type));
             }
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            // OT 校验失败（版本不对、长度不匹配等）：告知客户端，让它重新 join 拉全量
-            log.warn("客户端 {} 的操作被拒绝: {}", client.clientId, e.getMessage());
-            send(client, Message.error(e.getMessage()));
+        } catch (Exception e) {
+            // OT 校验失败（版本不对、长度不匹配）、持久化异常（事务回滚）等都从这里出去：
+            // 告知客户端，让它重新 join 拉全量恢复。不捕获的话异常会沿装饰器链关闭连接，
+            // 客户端只能靠断线重连恢复，而且收不到任何原因说明。
+            log.warn("客户端 {} 的消息处理失败: {}", client.clientId, e.toString());
+            send(client, Message.error(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
         }
     }
 
@@ -118,27 +120,29 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         client.docId = msg.docId;
         Set<Client> room = rooms.computeIfAbsent(msg.docId, k -> new CopyOnWriteArraySet<>());
 
-        // 在会话锁内读取内容和版本，避免读到「内容已更新但版本还没加一」的中间态
-        Message snapshot = Message.of("snapshot");
+        // 整个加入过程放在文档锁内，和 onOperation 的广播共用同一把锁：
+        // 「读快照 → 发快照 → 进房」是一个原子动作，不会出现「拿到旧快照、又错过进房前
+        // 已提交的操作」——那种交错会让新客户端永远漏掉一个版本。
         synchronized (docSession) {
+            Message snapshot = Message.of("snapshot");
             snapshot.content = docSession.getContent();
             snapshot.revision = docSession.getRevision();
-        }
-        snapshot.docId = msg.docId;
-        snapshot.clientId = client.clientId;
-        List<Message.ClientInfo> others = new ArrayList<>();
-        for (Client c : room) {
-            others.add(new Message.ClientInfo(c.clientId, c.name));
-        }
-        snapshot.clients = others;
-        send(client, snapshot);
+            snapshot.docId = msg.docId;
+            snapshot.clientId = client.clientId;
+            List<Message.ClientInfo> others = new ArrayList<>();
+            for (Client c : room) {
+                others.add(new Message.ClientInfo(c.clientId, c.name));
+            }
+            snapshot.clients = others;
+            send(client, snapshot);
 
-        Message joined = Message.of("joined");
-        joined.docId = msg.docId;
-        joined.client = new Message.ClientInfo(client.clientId, client.name);
-        broadcast(room, joined, client);
+            room.add(client);
 
-        room.add(client);
+            Message joined = Message.of("joined");
+            joined.docId = msg.docId;
+            joined.client = new Message.ClientInfo(client.clientId, client.name);
+            broadcast(room, joined, client);
+        }
     }
 
     /** 客户端提交操作：OT 转换 → 持久化 → ack 给自己 → 广播给别人 */
@@ -154,20 +158,27 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         DocumentSession docSession = documentService.getSession(client.docId).orElseThrow();
         TextOperation op = TextOperation.fromJson(msg.op);
 
-        DocumentSession.Applied applied =
-                documentService.applyOperation(docSession, op, msg.revision, client.clientId);
+        // 「转换 + 持久化 + ack + 广播」必须在同一把文档锁内整体串行。
+        // 只 synchronized receive 是不够的：那样版本号虽是按序分配的，
+        // 两个线程仍可能颠倒广播顺序（rev=2 先于 rev=1 到达客户端），
+        // 而客户端的 OT 状态机要求远端操作严格按 revision 逐个到来。
+        // @Transactional 的提交发生在 applyOperation 返回之前，也在锁内，落库顺序与广播顺序一致。
+        synchronized (docSession) {
+            DocumentSession.Applied applied =
+                    documentService.applyOperation(docSession, op, msg.revision, client.clientId);
 
-        Message ack = Message.of("ack");
-        ack.docId = client.docId;
-        ack.revision = applied.revision();
-        send(client, ack);
+            Message ack = Message.of("ack");
+            ack.docId = client.docId;
+            ack.revision = applied.revision();
+            send(client, ack);
 
-        Message broadcastMsg = Message.of("op");
-        broadcastMsg.docId = client.docId;
-        broadcastMsg.revision = applied.revision();
-        broadcastMsg.op = applied.op().toJson();
-        broadcastMsg.author = client.clientId;
-        broadcast(rooms.getOrDefault(client.docId, Set.of()), broadcastMsg, client);
+            Message broadcastMsg = Message.of("op");
+            broadcastMsg.docId = client.docId;
+            broadcastMsg.revision = applied.revision();
+            broadcastMsg.op = applied.op().toJson();
+            broadcastMsg.author = client.clientId;
+            broadcast(rooms.getOrDefault(client.docId, Set.of()), broadcastMsg, client);
+        }
     }
 
     /** 光标位置：不经过服务器状态，直接转发。客户端收到后自行随本地未确认操作做转换。 */

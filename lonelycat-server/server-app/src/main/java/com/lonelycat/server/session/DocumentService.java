@@ -109,23 +109,37 @@ public class DocumentService {
 
     /**
      * 处理客户端提交的操作：交给会话做 OT，然后写操作日志，按间隔写快照。
+     *
+     * <p>持久化失败时事务会回滚，但 {@link DocumentSession#receive} 已经修改了内存
+     * （内容、版本号、历史）。此时把会话踢出内存：下次访问从数据库重新恢复——
+     * 重放「最后一次成功提交」之前的操作日志总能得到一致的状态，
+     * 否则内存会永远领先于数据库，重启后文档内容倒退。
      */
     @Transactional
     public DocumentSession.Applied applyOperation(DocumentSession session, TextOperation op,
                                                   int baseRev, String author) {
-        DocumentSession.Applied applied = session.receive(op, baseRev);
+        try {
+            DocumentSession.Applied applied = session.receive(op, baseRev);
 
-        OperationEntity entity = new OperationEntity();
-        entity.setDocId(session.getDocId());
-        entity.setRevision(applied.revision());
-        entity.setOpJson(toJson(applied.op()));
-        entity.setAuthor(author);
-        operationRepository.save(entity);
+            OperationEntity entity = new OperationEntity();
+            entity.setDocId(session.getDocId());
+            entity.setRevision(applied.revision());
+            entity.setOpJson(toJson(applied.op()));
+            entity.setAuthor(author);
+            operationRepository.save(entity);
 
-        if (applied.revision() % props.snapshotInterval() == 0) {
-            saveSnapshot(session);
+            if (applied.revision() % props.snapshotInterval() == 0) {
+                saveSnapshot(session);
+            }
+            return applied;
+        } catch (IllegalArgumentException e) {
+            // 客户端错误（版本超前/太旧、长度不匹配）：receive 在修改内存之前就拒绝了，
+            // 会话仍然一致，照常拒绝即可，不要把会话踢出内存
+            throw e;
+        } catch (RuntimeException e) {
+            sessions.remove(session.getDocId());
+            throw e;
         }
-        return applied;
     }
 
     /** 把会话当前内容写成快照 */
