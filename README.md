@@ -230,7 +230,7 @@ node lonelycat-server/scripts/e2e-smoke.mjs      # 需要后端已启动
 
 **后续计划**
 
-1. **CRDT 版本。** 实现 `YjsSyncAdapter` 替换 `OtSyncAdapter`，后端增加 Yjs update 的中转与存储，编辑器层不动。两种方案在同一套 UI 下对比。
+1. **CRDT 版本。** 实现 `YjsSyncAdapter` 替换 `OtSyncAdapter`，后端增加 Yjs update 的中转与存储，编辑器层不动。两种方案在同一套 UI 下对比。为什么先 OT 后 CRDT 的完整技术分析见 [`docs/ot-to-crdt.md`](docs/ot-to-crdt.md)。
 2. 鉴权与文档权限。
 3. 富文本（标题、加粗等）：把操作模型从纯文本扩展为带属性的 rich-text 类型。
 4. 多实例与水平扩展。
