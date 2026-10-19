@@ -13,6 +13,8 @@ function createWindow() {
     width: 1100,
     height: 760,
     title: 'LonelyCat 协同编辑',
+    // 窗口/任务栏图标：web 的 public 下的官方 logo 图案（打包发布时需把它带进安装资源）
+    icon: path.join(__dirname, '..', 'web', 'public', 'icon.png'),
     webPreferences: {
       // 页面只是普通网页，不需要 Node 能力，保持默认的隔离设置最安全
       contextIsolation: true,

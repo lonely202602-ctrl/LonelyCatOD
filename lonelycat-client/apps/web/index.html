@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LonelyCat 协同编辑</title>
-    <!-- favicon 在 logo 接入提交里加入 -->
+    <!-- 官方 logo 图案做 favicon，跟随系统主题切换（浅色标签栏用深色图案，反之亦然） -->
+    <link rel="icon" type="image/png" media="(prefers-color-scheme: light)" href="./favicon-light.png" />
+    <link rel="icon" type="image/png" media="(prefers-color-scheme: dark)" href="./favicon-dark.png" />
     <script>
       // 首屏前恢复主题，避免深色用户看到白色闪烁
       (function () {
