@@ -47,7 +47,7 @@ public class DocumentController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<DocumentSummary> get(@PathVariable String id) {
+    public ResponseEntity<DocumentSummary> get(@PathVariable("id") String id) {
         return documentService.findDocument(id)
                 .map(DocumentSummary::from)
                 .map(ResponseEntity::ok)

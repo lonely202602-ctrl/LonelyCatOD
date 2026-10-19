@@ -28,6 +28,10 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- Spring 6.1 起不再从字节码局部变量表推断参数名，@PathVariable/@RequestParam
+             依赖反射拿参数名，必须开 -parameters 编译（spring-boot-starter-parent 默认会加，
+             这里只引 BOM 没继承它，所以要自己声明） -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
 
         <spring-boot.version>3.3.4</spring-boot.version>
         <junit.version>5.10.2</junit.version>
