@@ -1,0 +1,234 @@
+@import 'tailwindcss';
+
+/* class 驱动的深色模式：<html class="dark"> 生效（Tailwind v4 需要显式声明） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ----------------------------------------------------------------------
+   设计 tokens。浅色 = 暖纸白 + 橘猫橙；深色 = Linear 式多层深灰 + 提亮橙。
+   组件里统一用 bg-surface / text-muted / border-line 这类语义类名，
+   换主题只动这里的变量值。
+   ---------------------------------------------------------------- theming */
+:root {
+  --bg: #f7f7f4;
+  --surface: #ffffff;
+  --surface-2: #f0efec;
+  --surface-3: #e9e8e3;
+  --line: #e4e3de;
+  --line-strong: #d4d3cc;
+  --text: #1d1d1b;
+  --text-secondary: #55554f;
+  --muted: #8a8a83;
+  --accent: #e05d0d;
+  --accent-hover: #c94f08;
+  --accent-soft: #fdeee2;
+  --on-accent: #ffffff;
+  --ok: #2f9e44;
+  --ok-soft: #e3f4e6;
+  --warn: #e67700;
+  --warn-soft: #fdf0e0;
+  --err: #d6455d;
+  --err-soft: #fbe7ea;
+  --ring: rgba(224, 93, 13, 0.35);
+  --shadow-card: 0 1px 2px rgba(25, 23, 17, 0.05), 0 4px 16px rgba(25, 23, 17, 0.05);
+  --shadow-pop: 0 4px 12px rgba(25, 23, 17, 0.1), 0 16px 48px rgba(25, 23, 17, 0.14);
+}
+
+.dark {
+  --bg: #101013;
+  --surface: #17171b;
+  --surface-2: #1e1e24;
+  --surface-3: #26262d;
+  --line: #26262e;
+  --line-strong: #34343e;
+  --text: #ececea;
+  --text-secondary: #b4b4ae;
+  --muted: #7f7f88;
+  --accent: #f97e2e;
+  --accent-hover: #fb924e;
+  --accent-soft: #31200f;
+  --on-accent: #1a0e02;
+  --ok: #4cd964;
+  --ok-soft: #122816;
+  --warn: #ffb340;
+  --warn-soft: #2e2210;
+  --err: #ff7089;
+  --err-soft: #331722;
+  --ring: rgba(249, 126, 46, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.5), 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-err: var(--err);
+  --color-err-soft: var(--err-soft);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* 主题切换时给个平滑过渡；只过渡颜色，避免布局抖动 */
+body,
+body * {
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.12s ease;
+}
+/* CodeMirror 自己管理大量样式，排除掉以免拖慢输入 */
+#editor-root .cm-editor,
+#editor-root .cm-editor * {
+  transition: none;
+}
+
+/* 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ----------------------------------------------------------------------
+   CodeMirror 融入设计系统：无行号的书写画布，居中排版列
+   ---------------------------------------------------------------- theming */
+.lc-editor .cm-editor {
+  height: 100%;
+  background: transparent;
+  color: var(--text);
+}
+.lc-editor .cm-editor.cm-focused {
+  outline: none;
+}
+.lc-editor .cm-scroller {
+  font-family: var(--font-sans);
+  line-height: 1.75;
+}
+.lc-editor .cm-content {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 3rem 2rem 40vh;
+  font-size: 16px;
+  caret-color: var(--accent);
+}
+.lc-editor .cm-line {
+  padding: 0;
+}
+.lc-editor .cm-cursor {
+  border-left-width: 2px;
+}
+.lc-editor .cm-selectionBackground,
+.lc-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+}
+.lc-editor .cm-activeLine {
+  background: transparent;
+}
+.lc-editor .cm-gutters {
+  display: none;
+}
+
+/* 远端光标标签（packages/editor 的 remoteCursors）微调，融入新设计 */
+.lc-remote-caret {
+  border-left-width: 2px;
+  border-radius: 1px;
+}
+.lc-remote-caret-label {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: var(--shadow-card);
+}
+
+/* 动画 */
+@keyframes lc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+.lc-pulse {
+  animation: lc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes lc-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.lc-fade-up {
+  animation: lc-fade-up 0.22s ease both;
+}
+
+@keyframes lc-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.lc-skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: lc-shimmer 1.6s linear infinite;
+}

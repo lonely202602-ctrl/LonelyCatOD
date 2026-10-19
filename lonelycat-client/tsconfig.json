@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "lib": ["ES2022", "DOM"]
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["packages/*/src", "packages/*/test", "apps/web/src"]
 }

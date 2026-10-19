@@ -15,6 +15,13 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
   return res.json();
 }
 
+export async function getDocument(id: string): Promise<DocumentSummary | null> {
+  const res = await fetch(apiUrl(`/docs/${id}`));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`获取文档失败: ${res.status}`);
+  return res.json();
+}
+
 export async function createDocument(title: string): Promise<DocumentSummary> {
   const res = await fetch(apiUrl('/docs'), {
     method: 'POST',
