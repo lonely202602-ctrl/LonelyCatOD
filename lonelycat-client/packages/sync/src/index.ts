@@ -4,3 +4,5 @@ export { OtClient } from './otClient';
 export type { OtClientTransport, ClientState } from './otClient';
 export { OtSyncAdapter } from './otSyncAdapter';
 export type { OtSyncOptions } from './otSyncAdapter';
+export { CrdtSyncAdapter } from './crdtSyncAdapter';
+export type { CrdtSyncOptions, CrdtEvents } from './crdtSyncAdapter';

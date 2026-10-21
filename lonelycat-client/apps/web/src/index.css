@@ -189,6 +189,19 @@ body * {
   box-shadow: var(--shadow-card);
 }
 
+/* ----------------------------------------------------------------------
+   Electron 桌面端一体化：<html class="lc-desktop"> 时启用
+   页头 = 可拖拽区域（拖动窗口 / 双击最大化，Chromium 原生行为），
+   右侧用 --wco-w 让位给原生窗口控制按钮叠层。
+   ---------------------------------------------------------------- theming */
+.lc-desktop .lc-titlebar {
+  -webkit-app-region: drag;
+  padding-right: var(--wco-w, 0px);
+}
+.lc-desktop .lc-titlebar :is(button, a, input) {
+  -webkit-app-region: no-drag;
+}
+
 /* 动画 */
 @keyframes lc-pulse {
   0%,

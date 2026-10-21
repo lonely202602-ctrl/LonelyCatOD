@@ -29,10 +29,14 @@ export type SyncEvents = {
   remoteOp: (op: TextOperation, author: string) => void;
   /** 远端光标变化 */
   cursor: (cursor: RemoteCursor) => void;
+  /** 有人正在输入（心跳，实现层负责节流发送；展示方自行做超时隐藏） */
+  typing: (clientId: string) => void;
   /** 有人加入 */
   joined: (client: RemoteClient) => void;
   /** 有人离开 */
   left: (clientId: string) => void;
+  /** 当前文档被删除（REST 删除时服务器广播），收到后应离开编辑页 */
+  deleted: (docId: string) => void;
   /** 连接状态变化 */
   status: (status: ConnectionStatus) => void;
   /** 服务器返回错误 */
@@ -51,6 +55,9 @@ export interface SyncAdapter {
 
   /** 广播自己的光标 */
   sendCursor(anchor: number, head: number): void;
+
+  /** 通知别人「我正在输入」。实现层负责节流，调用方只管在本地编辑时调它 */
+  sendTyping(): void;
 
   on<K extends keyof SyncEvents>(event: K, handler: SyncEvents[K]): () => void;
 }

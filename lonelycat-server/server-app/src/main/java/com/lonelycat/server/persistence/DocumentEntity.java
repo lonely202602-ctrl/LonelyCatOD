@@ -34,6 +34,11 @@ public class DocumentEntity {
     @Column(nullable = false)
     private int snapshotRevision = 0;
 
+    /** 同步引擎：ot（OT 三状态机，默认）或 crdt（RGA，无定序）。两种引擎长期共存 */
+    @Column(nullable = false, length = 8)
+    @org.hibernate.annotations.ColumnDefault("'ot'") // ddl-auto=update 给已有数据的表加列时必须带默认值
+    private String engine = "ot";
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -70,6 +75,14 @@ public class DocumentEntity {
 
     public void setSnapshotRevision(int snapshotRevision) {
         this.snapshotRevision = snapshotRevision;
+    }
+
+    public String getEngine() {
+        return engine;
+    }
+
+    public void setEngine(String engine) {
+        this.engine = engine;
     }
 
     public Instant getCreatedAt() {

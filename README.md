@@ -155,8 +155,9 @@ sequenceDiagram
 | 后端 | Java 17，Spring Boot 3，原生 WebSocket | 不用 STOMP，协议自己定更清楚；`TextWebSocketHandler` 足够 |
 | 持久化 | H2 文件库，JPA | 零安装即可运行；操作日志表 + 定期快照，重启后从快照重放恢复。换 PostgreSQL 只改配置 |
 | 前端编辑器 | CodeMirror 6 | 事务模型天然适合「改动 → 操作」的转换，有成熟的装饰 API 画远端光标 |
+| 前端壳 | React 19 + Tailwind CSS v4 | 2026-10-19 从原生 TS 重写；深浅双主题（CSS 变量）、组件全手写不引组件库；算法/同步/编辑器三包零改动 |
 | 前端构建 | Vite，npm workspaces | 内部包直接以 TS 源码互相引用，无需预编译 |
-| 桌面端 | Electron | 直接加载网页构建产物，一份代码两端跑；机器上没有 Rust，所以没用 Tauri |
+| 桌面端 | Electron | 直接加载网页构建产物，一份代码两端跑；无边框窗口 + 主题化窗口控制按钮，与网页 UI 一体（`titleBarOverlay` + preload 桥） |
 | 同步层抽象 | `SyncAdapter` 接口 | 编辑器只依赖接口，`OtSyncAdapter` 可被 `YjsSyncAdapter` 整体替换 |
 
 ## 仓库结构

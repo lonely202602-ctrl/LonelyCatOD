@@ -3,6 +3,7 @@ package com.lonelycat.server.ws;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lonelycat.ot.TextOperation;
 import com.lonelycat.server.protocol.Message;
+import com.lonelycat.server.session.CrdtSession;
 import com.lonelycat.server.session.DocumentService;
 import com.lonelycat.server.session.DocumentSession;
 import org.slf4j.Logger;
@@ -87,6 +88,7 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
                 case "join" -> onJoin(client, msg);
                 case "op" -> onOperation(client, msg);
                 case "cursor" -> onCursor(client, msg);
+                case "typing" -> onTyping(client, msg);
                 case "leave" -> leaveRoom(client);
                 default -> send(client, Message.error("未知消息类型: " + msg.type));
             }
@@ -103,12 +105,18 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
     // 各类消息处理
     // ------------------------------------------------------------------
 
-    /** 加入文档：回 snapshot，并通知房间里其他人 */
+    /** 加入文档：回 snapshot，并通知房间里其他人。OT / CRDT 文档走两条分支 */
     private void onJoin(Client client, Message msg) {
         if (msg.docId == null) {
             send(client, Message.error("join 缺少 docId"));
             return;
         }
+        var docEntity = documentService.findDocument(msg.docId).orElse(null);
+        if (docEntity != null && "crdt".equals(docEntity.getEngine())) {
+            joinCrdt(client, msg);
+            return;
+        }
+
         DocumentSession docSession = documentService.getSession(msg.docId).orElse(null);
         if (docSession == null) {
             send(client, Message.error("文档不存在: " + msg.docId));
@@ -118,6 +126,7 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         leaveRoom(client); // 如果之前在别的文档里，先离开
         client.name = msg.name == null || msg.name.isBlank() ? client.clientId : msg.name.trim();
         client.docId = msg.docId;
+        client.engine = "ot";
         Set<Client> room = rooms.computeIfAbsent(msg.docId, k -> new CopyOnWriteArraySet<>());
 
         // 整个加入过程放在文档锁内，和 onOperation 的广播共用同一把锁：
@@ -145,18 +154,55 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    /** 客户端提交操作：OT 转换 → 持久化 → ack 给自己 → 广播给别人 */
+    /** CRDT 文档的加入：多带一份全量副本状态（字符身份证结构），其余与 OT 相同 */
+    private void joinCrdt(Client client, Message msg) {
+        CrdtSession crdtSession = documentService.getCrdtSession(msg.docId).orElseThrow();
+        leaveRoom(client);
+        client.name = msg.name == null || msg.name.isBlank() ? client.clientId : msg.name.trim();
+        client.docId = msg.docId;
+        client.engine = "crdt";
+        Set<Client> room = rooms.computeIfAbsent(msg.docId, k -> new CopyOnWriteArraySet<>());
+
+        synchronized (crdtSession) {
+            Message snapshot = Message.of("snapshot");
+            snapshot.content = crdtSession.getText();
+            snapshot.revision = crdtSession.getRevision();
+            snapshot.docId = msg.docId;
+            snapshot.clientId = client.clientId;
+            snapshot.crdtState = new ArrayList<>(crdtSession.getState());
+            List<Message.ClientInfo> others = new ArrayList<>();
+            for (Client c : room) {
+                others.add(new Message.ClientInfo(c.clientId, c.name));
+            }
+            snapshot.clients = others;
+            send(client, snapshot);
+
+            room.add(client);
+
+            Message joined = Message.of("joined");
+            joined.docId = msg.docId;
+            joined.client = new Message.ClientInfo(client.clientId, client.name);
+            broadcast(room, joined, client);
+        }
+    }
+
+    /** 客户端提交操作：按 join 时记住的引擎分流。CRDT 无 transform、无版本校验、无 ack */
     private void onOperation(Client client, Message msg) {
         if (client.docId == null || !client.docId.equals(msg.docId)) {
             send(client, Message.error("请先 join 文档再提交操作"));
             return;
         }
-        if (msg.revision == null || msg.op == null) {
+        if ("crdt".equals(client.engine)) {
+            onCrdtOperation(client, msg);
+            return;
+        }
+        if (msg.revision == null || !(msg.op instanceof List)) {
             send(client, Message.error("op 消息缺少 revision 或 op"));
             return;
         }
         DocumentSession docSession = documentService.getSession(client.docId).orElseThrow();
-        TextOperation op = TextOperation.fromJson(msg.op);
+        @SuppressWarnings("unchecked")
+        TextOperation op = TextOperation.fromJson((List<Object>) msg.op);
 
         // 「转换 + 持久化 + ack + 广播」必须在同一把文档锁内整体串行。
         // 只 synchronized receive 是不够的：那样版本号虽是按序分配的，
@@ -181,6 +227,33 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * CRDT 操作：应用 → 持久化 → 广播，没了。
+     * 这里的 synchronized 只让日志顺序与广播顺序一致（重放舒服），删掉它收敛性不受影响——
+     * 与上面 OT 分支「拿掉锁就塌」对照着看，正是两种引擎的分水岭。
+     */
+    private void onCrdtOperation(Client client, Message msg) {
+        if (!(msg.op instanceof Map)) {
+            send(client, Message.error("CRDT 操作格式错误：应为对象"));
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> crdtOp = (Map<String, Object>) msg.op;
+        CrdtSession crdtSession = documentService.getCrdtSession(client.docId).orElseThrow();
+        synchronized (crdtSession) {
+            int revision = documentService.applyCrdtOperation(crdtSession, crdtOp, client.clientId);
+            if (revision < 0) {
+                return; // 重复投递（幂等命中），静默跳过
+            }
+            Message broadcastMsg = Message.of("op");
+            broadcastMsg.docId = client.docId;
+            broadcastMsg.revision = revision;
+            broadcastMsg.op = crdtOp;
+            broadcastMsg.author = client.clientId;
+            broadcast(rooms.getOrDefault(client.docId, Set.of()), broadcastMsg, client);
+        }
+    }
+
     /** 光标位置：不经过服务器状态，直接转发。客户端收到后自行随本地未确认操作做转换。 */
     private void onCursor(Client client, Message msg) {
         if (client.docId == null || msg.cursor == null) {
@@ -191,6 +264,34 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         out.author = client.clientId;
         out.cursor = msg.cursor;
         broadcast(rooms.getOrDefault(client.docId, Set.of()), out, client);
+    }
+
+    /** 「正在输入」心跳：纯转发，无服务器状态。客户端自己节流发送、超时隐藏。 */
+    private void onTyping(Client client, Message msg) {
+        if (client.docId == null) {
+            return;
+        }
+        Message out = Message.of("typing");
+        out.docId = client.docId;
+        out.author = client.clientId;
+        broadcast(rooms.getOrDefault(client.docId, Set.of()), out, client);
+    }
+
+    /**
+     * 文档被 REST 删除时通知房间里的所有人并就地清房。
+     * 不走 leaveRoom 逐个广播 left（那会对每个成员发一遍离开消息），一条 deleted 说清楚。
+     */
+    public void broadcastDocDeleted(String docId) {
+        Set<Client> room = rooms.remove(docId);
+        if (room == null) {
+            return;
+        }
+        Message out = Message.of("deleted");
+        out.docId = docId;
+        for (Client c : room) {
+            c.docId = null;
+            send(c, out);
+        }
     }
 
     private void leaveRoom(Client client) {
@@ -244,6 +345,8 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         final String clientId;
         volatile String name;
         volatile String docId;
+        /** 加入文档时记住引擎类型，之后每个 op 不用再查库分流 */
+        volatile String engine = "ot";
 
         Client(WebSocketSession session, String clientId) {
             this.session = session;

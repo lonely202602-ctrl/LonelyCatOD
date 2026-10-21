@@ -36,8 +36,11 @@ public class Message {
     /** op 消息：客户端发送时表示所基于的版本，服务器广播时表示该操作成为的新版本 */
     public Integer revision;
 
-    /** 操作的紧凑 JSON 表示，例如 [1, -1, 2] */
-    public List<Object> op;
+    /** 操作的线路格式。OT 文档是数组（如 [1, -1, 2]），CRDT 文档是对象（见 CrdtDoc 类注释） */
+    public Object op;
+
+    /** snapshot 消息（仅 CRDT 文档）：服务器副本的全量条目，新成员据此认识每个字符的身份证 */
+    public List<Object> crdtState;
 
     /** 操作或光标的来源客户端 id */
     public String author;

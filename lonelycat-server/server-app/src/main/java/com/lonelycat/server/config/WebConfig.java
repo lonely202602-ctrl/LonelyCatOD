@@ -40,7 +40,8 @@ public class WebConfig implements WebSocketConfigurer {
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/api/**")
                         .allowedOriginPatterns(props.allowedOrigins())
-                        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS");
+                        // PATCH 别漏：重命名文档走 PATCH，漏了会被浏览器预检 403
+                        .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
             }
         };
     }

@@ -14,6 +14,7 @@
 | `join` | `docId`, `name` | 加入文档。服务器回 `snapshot`，并向房间内其他人广播 `joined` |
 | `op` | `docId`, `revision`, `op` | 提交操作。`revision` 是客户端生成该操作时本地所处的版本号 |
 | `cursor` | `docId`, `cursor:{anchor, head}` | 广播光标/选区位置 |
+| `typing` | `docId` | 「正在输入」心跳。客户端节流发送（约 500ms 一次），服务器纯转发 |
 | `leave` | `docId` | 离开文档 |
 
 ## 服务器 → 客户端
@@ -24,9 +25,22 @@
 | `ack` | `docId`, `revision` | 你提交的操作已被接受，`revision` 是它成为的新版本号 |
 | `op` | `docId`, `revision`, `op`, `author` | 别人的操作，已由服务器转换到 `revision - 1` 版之上 |
 | `cursor` | `docId`, `author`, `cursor` | 别人的光标 |
+| `typing` | `docId`, `author` | 某人正在输入（心跳，客户端超时约 2s 自动隐藏） |
 | `joined` | `docId`, `client:{clientId, name}` | 有人加入 |
 | `left` | `docId`, `clientId` | 有人离开 |
+| `deleted` | `docId` | 文档被 REST 删除。收到后应跳回文档列表 |
 | `error` | `message` | 出错。客户端收到后应重新 `join` 拉取全量恢复 |
+
+## 文档管理 REST
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/docs` | 文档列表 |
+| `POST` | `/api/docs` | 创建，body `{title, content}` |
+| `GET` | `/api/docs/{id}` | 文档元信息 |
+| `PATCH` | `/api/docs/{id}` | 重命名，body `{title}` |
+| `DELETE` | `/api/docs/{id}` | 删除（在线房间会收到 `deleted` 广播） |
+| `GET` | `/api/docs/{id}/replay` | 时光回放：`{baseContent, baseRevision, operations:[{revision, author, op, createdAt}]}`。客户端从快照正向重放得到每一版，配合倒序 invert 可回溯到第 0 版 |
 
 ## 版本号约定
 

@@ -46,6 +46,7 @@ export class OtSyncAdapter implements SyncAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private cursorTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCursor: { anchor: number; head: number } | null = null;
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** 服务器分配的 clientId，snapshot 之后才有 */
   clientId = '';
@@ -76,6 +77,8 @@ export class OtSyncAdapter implements SyncAdapter {
   disconnect(): void {
     this.closedByUser = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.typingTimer) clearTimeout(this.typingTimer);
+    if (this.cursorTimer) clearTimeout(this.cursorTimer);
     this.send({ type: 'leave', docId: this.options.docId });
     this.ws?.close();
     this.ws = null;
@@ -98,6 +101,15 @@ export class OtSyncAdapter implements SyncAdapter {
         this.pendingCursor = null;
       }
     }, 50);
+  }
+
+  sendTyping(): void {
+    // 节流：连续打字期间每 500ms 最多发一次心跳
+    if (this.typingTimer) return;
+    this.typingTimer = setTimeout(() => {
+      this.typingTimer = null;
+      this.send({ type: 'typing', docId: this.options.docId });
+    }, 500);
   }
 
   get revision(): number {
@@ -195,6 +207,12 @@ export class OtSyncAdapter implements SyncAdapter {
         if (msg.author && msg.cursor) {
           this.emitter.emit('cursor', { clientId: msg.author, anchor: msg.cursor.anchor, head: msg.cursor.head });
         }
+        break;
+      case 'typing':
+        if (msg.author) this.emitter.emit('typing', msg.author);
+        break;
+      case 'deleted':
+        this.emitter.emit('deleted', msg.docId ?? '');
         break;
       case 'joined':
         if (msg.client) this.emitter.emit('joined', msg.client);

@@ -170,7 +170,9 @@ class AwaitingConfirm implements ClientState {
     // 收到的 op 是基于「服务器版本」的，本地文档比服务器多了 outstanding，
     // 所以要把 op 转换成 op' 才能应用到本地；同时 outstanding 也要转换成 outstanding'，
     // 因为等它被服务器接受时，服务器会做同样的转换。
-    // 参数顺序：本地未确认的操作放第一个（和服务器端把「新到操作」放第一个的约定对应）。
+    // 参数顺序：本地未确认的操作放第一个。服务器把「新到操作」放第一个（PROTOCOL.md）——
+    // 服务器眼里的「新到」正是本客户端的「本地未确认」，同一次平局判给同一条操作，
+    // 两端一致（见 samePositionTiebreak.test.ts 的回归）。
     const [outstandingPrime, opPrime] = transform(this.outstanding, op);
     client.applyOperation(opPrime);
     return new AwaitingConfirm(outstandingPrime);
@@ -204,7 +206,7 @@ class AwaitingWithBuffer implements ClientState {
     //   新服务器版本 ----------> 新中间状态 ----------> 新本地
     //               outstanding'             buffer'
     //
-    // 两步转换：先过 outstanding，再过 buffer
+    // 两步转换：先过 outstanding，再过 buffer（远端广播放第二个参数，理由同上）
     const [outstandingPrime, opPrime] = transform(this.outstanding, op);
     const [bufferPrime, opDoublePrime] = transform(this.buffer, opPrime);
     client.applyOperation(opDoublePrime);

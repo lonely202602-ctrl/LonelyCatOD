@@ -7,10 +7,10 @@ import { EditorPage } from './pages/EditorPage';
 import { useHashRoute } from './useHashRoute';
 import './index.css';
 
-/**
- * 应用入口。两层 Provider：主题（深浅切换）、Toast（错误提示）。
- * 昵称存 localStorage，第一次进入时用对话框问一次（替代原来的 prompt()）。
- */
+// 桌面端（Electron）标记：启用页头拖拽区、窗口控制按钮避让等一体化样式
+if (window.lcDesktop?.isDesktop) {
+  document.documentElement.classList.add('lc-desktop');
+}
 
 function getSavedName(): string {
   return localStorage.getItem('lc.name') ?? '';

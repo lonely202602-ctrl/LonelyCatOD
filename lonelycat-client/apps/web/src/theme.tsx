@@ -35,6 +35,61 @@ export function useTheme() {
   return useContext(ThemeContext);
 }
 
+// ----------------------------------------------------------------------
+// Electron 桌面端一体化（浏览器里全部是空操作）
+// ----------------------------------------------------------------------
+
+declare global {
+  interface Window {
+    lcDesktop?: {
+      isDesktop: boolean;
+      setTitleBarOverlay: (opts: { color: string; symbolColor: string; height?: number }) => Promise<void>;
+    };
+  }
+}
+
+/**
+ * 桌面端窗口一体化：
+ *   - 让页头成为可拖拽区域（配合 index.css 的 .lc-titlebar），并把右上角让位给
+ *     原生窗口控制按钮（宽度写在 CSS 变量 --wco-w 上，随窗口变化更新）
+ *   - 主题/页面切换时，把窗口控制按钮叠层的配色和高度同步成当前界面的样子
+ *
+ * @param page 'list' 页头透明坐在页面底色上；'editor' 页头是 surface 色带分隔线
+ */
+export function useDesktopChrome(page: 'list' | 'editor') {
+  const { theme } = useTheme();
+
+  useEffect(() => {
+    if (!window.lcDesktop?.isDesktop) return;
+    const wco = (navigator as unknown as {
+      windowControlsOverlay?: {
+        getTitlebarAreaRect: () => DOMRect | undefined;
+        addEventListener: (t: string, l: () => void) => void;
+        removeEventListener: (t: string, l: () => void) => void;
+      };
+    }).windowControlsOverlay;
+    if (!wco) return;
+
+    const updateWidth = () => {
+      const rect = wco.getTitlebarAreaRect();
+      const reserved = rect ? Math.max(0, window.innerWidth - rect.width) : 0;
+      document.documentElement.style.setProperty('--wco-w', `${reserved}px`);
+    };
+    updateWidth();
+    wco.addEventListener('geometrychange', updateWidth);
+    return () => wco.removeEventListener('geometrychange', updateWidth);
+  }, []);
+
+  useEffect(() => {
+    if (!window.lcDesktop?.setTitleBarOverlay) return;
+    const cs = getComputedStyle(document.documentElement);
+    const color = cs.getPropertyValue(page === 'editor' ? '--surface' : '--bg').trim();
+    const symbolColor = cs.getPropertyValue('--text').trim();
+    const height = page === 'editor' ? 56 : 64;
+    void window.lcDesktop.setTitleBarOverlay({ color, symbolColor, height });
+  }, [theme, page]);
+}
+
 const SunIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <circle cx="12" cy="12" r="4" />

@@ -43,6 +43,9 @@ public class DocumentService {
     /** docId -> 内存中的实时会话。只有被打开过的文档才会加载进来。 */
     private final Map<String, DocumentSession> sessions = new ConcurrentHashMap<>();
 
+    /** docId -> CRDT 文档的服务端会话，与 OT 会话并行存在、互不干扰 */
+    private final Map<String, CrdtSession> crdtSessions = new ConcurrentHashMap<>();
+
     public DocumentService(DocumentRepository documentRepository,
                            OperationRepository operationRepository,
                            LonelyCatProperties props) {
@@ -64,13 +67,53 @@ public class DocumentService {
     }
 
     @Transactional
-    public DocumentEntity createDocument(String title, String initialContent) {
+    public DocumentEntity createDocument(String title, String initialContent, String engine) {
         DocumentEntity doc = new DocumentEntity();
         doc.setId(UUID.randomUUID().toString());
         doc.setTitle(title == null || title.isBlank() ? "未命名文档" : title.trim());
         doc.setContent(initialContent == null ? "" : initialContent);
         doc.setSnapshotRevision(0);
+        doc.setEngine("crdt".equals(engine) ? "crdt" : "ot"); // 只认这两个值，默认 ot
         return documentRepository.save(doc);
+    }
+
+    /** 重命名文档。编辑中的会话不感知（下次进文档或刷新列表时看到新标题） */
+    @Transactional
+    public Optional<DocumentEntity> renameDocument(String id, String title) {
+        return documentRepository.findById(id).map(doc -> {
+            doc.setTitle(title == null || title.isBlank() ? doc.getTitle() : title.trim());
+            doc.setUpdatedAt(Instant.now());
+            return documentRepository.save(doc);
+        });
+    }
+
+    /**
+     * 删除文档：清操作日志、删文档行、把内存会话踢出。
+     * 在线客户端由 WebSocket 层广播 deleted 消息（见 CollabWebSocketHandler.broadcastDocDeleted）。
+     */
+    @Transactional
+    public boolean deleteDocument(String id) {
+        if (!documentRepository.existsById(id)) {
+            return false;
+        }
+        operationRepository.deleteByDocId(id);
+        documentRepository.deleteById(id);
+        sessions.remove(id);
+        crdtSessions.remove(id);
+        return true;
+    }
+
+    /** 时光回放数据：引擎类型 + 快照 + 全部操作日志（客户端自行推演出每一版内容） */
+    public Optional<ReplayData> getReplayData(String id) {
+        return documentRepository.findById(id).map(entity -> new ReplayData(
+                entity.getEngine(),
+                entity.getContent(),
+                entity.getSnapshotRevision(),
+                operationRepository.findByDocIdOrderByRevisionAsc(id)));
+    }
+
+    /** 时光回放的载荷：引擎类型 + 快照（content@snapshotRevision）+ 全量操作日志 */
+    public record ReplayData(String engine, String content, int snapshotRevision, List<OperationEntity> operations) {
     }
 
     // ------------------------------------------------------------------
@@ -156,10 +199,86 @@ public class DocumentService {
         });
     }
 
+    // ------------------------------------------------------------------
+    // CRDT 会话：服务器只是一份普通副本（中转站 + 存储）
+    // ------------------------------------------------------------------
+
+    /**
+     * 取得 CRDT 文档会话；不在内存时从数据库重放全部操作日志重建副本。
+     * 不用快照列重建——快照里只有纯文本，丢了字符的身份证，别人后续的操作就没法落座。
+     */
+    public Optional<CrdtSession> getCrdtSession(String docId) {
+        CrdtSession existing = crdtSessions.get(docId);
+        if (existing != null) {
+            return Optional.of(existing);
+        }
+        return documentRepository.findById(docId).map(entity -> {
+            if (!"crdt".equals(entity.getEngine())) {
+                throw new IllegalArgumentException("文档 " + docId + " 不是 CRDT 引擎");
+            }
+            return crdtSessions.computeIfAbsent(docId, id -> {
+                List<Map<String, Object>> ops = operationRepository
+                        .findByDocIdOrderByRevisionAsc(id).stream()
+                        .map(e -> parseCrdtOp(e.getOpJson()))
+                        .toList();
+                CrdtSession session = CrdtSession.restore(id, ops);
+                log.info("恢复 CRDT 文档 {}：重放 {} 个操作，当前 {} 字符", id, ops.size(), session.getText().length());
+                return session;
+            });
+        });
+    }
+
+    /**
+     * 处理 CRDT 操作：应用 → 写日志 → 按间隔写快照。返回日志版本；重复投递返回 -1（调用方跳过广播）。
+     * synchronized 只保证「应用顺序 = 日志顺序 = 广播顺序」，拿掉它收敛性依然成立——
+     * 这正是 CRDT 和 OT（§P0 竞态）最本质的差别。
+     */
+    @Transactional
+    public int applyCrdtOperation(CrdtSession session, Map<String, Object> opJson, String author) {
+        try {
+            int revision = session.apply(opJson);
+            if (revision < 0) {
+                return -1;
+            }
+            OperationEntity entity = new OperationEntity();
+            entity.setDocId(session.getDocId());
+            entity.setRevision(revision);
+            entity.setOpJson(toJson(opJson));
+            entity.setAuthor(author);
+            operationRepository.save(entity);
+
+            if (revision % props.snapshotInterval() == 0) {
+                documentRepository.findById(session.getDocId()).ifPresent(docRow -> {
+                    synchronized (session) {
+                        docRow.setContent(session.getText());
+                        docRow.setSnapshotRevision(revision);
+                    }
+                    docRow.setUpdatedAt(Instant.now());
+                    documentRepository.save(docRow);
+                });
+            }
+            return revision;
+        } catch (RuntimeException e) {
+            crdtSessions.remove(session.getDocId());
+            throw e;
+        }
+    }
+
     /** 服务关闭时把所有内存中的文档写一次快照，下次启动无需重放 */
     @PreDestroy
     public void flushAll() {
         sessions.values().forEach(this::saveSnapshot);
+        // CRDT 会话没有可写的快照（身份证结构不在快照列里），但内容列要保持新鲜供列表/回放展示
+        for (CrdtSession session : crdtSessions.values()) {
+            documentRepository.findById(session.getDocId()).ifPresent(doc -> {
+                synchronized (session) {
+                    doc.setContent(session.getText());
+                    doc.setSnapshotRevision(session.getRevision());
+                }
+                doc.setUpdatedAt(Instant.now());
+                documentRepository.save(doc);
+            });
+        }
     }
 
     // ------------------------------------------------------------------
@@ -177,6 +296,24 @@ public class DocumentService {
     public String toJson(TextOperation op) {
         try {
             return mapper.writeValueAsString(op.toJson());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** CRDT 操作日志的 JSON -> Map（线路格式见 CrdtDoc 类注释） */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> parseCrdtOp(String json) {
+        try {
+            return mapper.readValue(json, Map.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("CRDT 操作 JSON 解析失败: " + json, e);
+        }
+    }
+
+    public String toJson(Map<String, Object> crdtOp) {
+        try {
+            return mapper.writeValueAsString(crdtOp);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
